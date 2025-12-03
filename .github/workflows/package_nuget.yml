@@ -1,0 +1,101 @@
+name: Actividad02 - PackageNuget
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+
+env:
+  DOTNET_VERSION: '8.0'
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+      id-token: write
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: ${{ env.DOTNET_VERSION }}
+
+      - name: Restore dependencies & Build solutions
+        run: |
+          dotnet restore ATM/ATM.sln
+          dotnet restore Payment/Payment.sln
+          dotnet build ATM/ATM.sln --configuration Release --no-restore
+          dotnet build Payment/Payment.sln --configuration Release --no-restore
+
+      - name: Run unit tests (ATM)
+        run: |
+          dotnet test ATM/ATM.Domain.Tests/ATM.Domain.Tests.csproj --configuration Release --logger trx --results-directory ATM/TestResults
+
+      - name: Run unit tests (Payment)
+        run: |
+          dotnet test Payment/Payment.Domain.Tests/Payment.Domain.Tests.csproj --configuration Release --logger trx --results-directory Payment/TestResults
+
+      - name: Upload test results
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-results
+          path: |
+            ATM/TestResults
+            Payment/TestResults
+
+      - name: SonarCloud Scan
+        if: ${{ secrets.SONAR_TOKEN != '' }}
+        uses: SonarSource/sonarcloud-github-action@v2
+        env:
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+        with:
+          args: >
+            -Dsonar.organization=${{ secrets.SONAR_ORGANIZATION }}
+            -Dsonar.projectKey=${{ secrets.SONAR_PROJECT_KEY }}
+            -Dsonar.host.url=https://sonarcloud.io
+            -Dsonar.sources=.
+            -Dsonar.exclusions=**/bin/**,**/obj/**,**/TestResults/**,**/*.md,**/*.yml
+            -Dsonar.cs.vstest.reportsPaths=**/*.trx
+            -Dsonar.coverage.exclusions=**/*.csproj,**/*Tests.cs
+        continue-on-error: true
+
+      - name: Pack NuGet package (ATM.Domain)
+        run: |
+          dotnet pack ATM/ATM.Domain/ATM.Domain.csproj -c Release \
+            -p:PackageVersion=2025.1001.${{ github.run_number }} \
+            -p:RepositoryUrl=https://github.com/${{ github.repository }} \
+            -p:RepositoryType=git
+
+      - name: Pack NuGet package (Payment.Domain)
+        run: |
+          dotnet pack Payment/Payment.Domain/Payment.Domain.csproj -c Release \
+            -p:PackageVersion=2025.1001.${{ github.run_number }} \
+            -p:RepositoryUrl=https://github.com/${{ github.repository }} \
+            -p:RepositoryType=git
+
+      - name: Check NuGet sources
+        run: dotnet nuget list source
+
+      - name: Push NuGet package (ATM.Domain)
+        if: github.event_name == 'push'
+        run: |
+          dotnet nuget push ATM/ATM.Domain/bin/Release/*.nupkg \
+            --skip-duplicate \
+            --source "https://nuget.pkg.github.com/${{ github.repository_owner }}/index.json" \
+            --api-key ${{ secrets.GITHUB_TOKEN }}
+        continue-on-error: true
+
+      - name: Push NuGet package (Payment.Domain)
+        if: github.event_name == 'push'
+        run: |
+          dotnet nuget push Payment/Payment.Domain/bin/Release/*.nupkg \
+            --skip-duplicate \
+            --source "https://nuget.pkg.github.com/${{ github.repository_owner }}/index.json" \
+            --api-key ${{ secrets.GITHUB_TOKEN }}
+        continue-on-error: true
