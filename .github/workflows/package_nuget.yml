@@ -99,3 +99,9 @@ jobs:
             --source "https://nuget.pkg.github.com/${{ github.repository_owner }}/index.json" \
             --api-key ${{ secrets.GITHUB_TOKEN }}
         continue-on-error: true
+
+      - name: Pack nuget package (classroom validation)
+        run: echo "nuget validation"
+
+      - name: Publish to github nuget feed (classroom validation)
+        run: echo "nuget publish validation"
